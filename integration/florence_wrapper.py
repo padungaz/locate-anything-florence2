@@ -235,48 +235,68 @@ class FlorenceEngine:
         return self._detect_image(image, prompt)
 
     def _detect_image(self, image: Image.Image, prompt: str) -> List[Dict]:
-        """Internal: run detection on a PIL Image."""
-        task, text_input = self._translate_prompt(prompt)
-
+        """Internal: run detection on a PIL Image with high-recall hybrid detection."""
         p = prompt.strip()
-        if p.upper() in ("<OD>", "OD"):
-            requested_labels = []
-        else:
-            prefix = "Locate all the instances that matches the following description:"
-            if p.lower().startswith(prefix.lower()):
-                p = p[len(prefix):].strip().rstrip(".")
-            requested_labels = [lbl.strip().lower() for lbl in p.split("</c>") if lbl.strip() and lbl.strip().upper() not in ("<OD>", "OD")]
+        if not p or p.upper() in ("<OD>", "OD"):
+            parsed_od = self._run_inference(image, "<OD>", None)
+            return self._parse_detections(parsed_od, "<OD>", [])
 
-        parsed = self._run_inference(image, task, text_input)
-        detections = self._parse_detections(parsed, task, requested_labels)
+        # Parse requested labels
+        prefix = "Locate all the instances that matches the following description:"
+        if p.lower().startswith(prefix.lower()):
+            p = p[len(prefix):].strip().rstrip(".")
+        requested_labels = [lbl.strip().lower() for lbl in p.split("</c>") if lbl.strip() and lbl.strip().upper() not in ("<OD>", "OD")]
 
-        # Heuristic: Florence-2 phrase grounding defaults to the whole frame (~90-100% area)
-        # when an object is completely absent. Filter out such spurious full-frame boxes.
-        if task == "<CAPTION_TO_PHRASE_GROUNDING>":
-            img_area = image.width * image.height
-            valid_detections = []
-            for d in detections:
+        if not requested_labels:
+            parsed_od = self._run_inference(image, "<OD>", None)
+            return self._parse_detections(parsed_od, "<OD>", [])
+
+        # 1. First run <OD> to capture all exhaustive standard object instances in the scene
+        parsed_od = self._run_inference(image, "<OD>", None)
+        all_od_dets = self._parse_detections(parsed_od, "<OD>", requested_labels)
+
+        od_matched = []
+        found_labels = set()
+        for d in all_od_dets:
+            for req in requested_labels:
+                if req == d["label"] or (len(req) > 3 and req in d["label"]) or (len(d["label"]) > 3 and d["label"] in req):
+                    d["label"] = req  # normalize label
+                    od_matched.append(d)
+                    found_labels.add(req)
+                    break
+
+        # 2. For any label NOT matched in OD (e.g. fine-grained phrases, parts), run phrase grounding
+        missing_labels = [lbl for lbl in requested_labels if lbl not in found_labels]
+        grounding_dets = []
+        img_area = image.width * image.height
+
+        for missing in missing_labels:
+            task = "<CAPTION_TO_PHRASE_GROUNDING>"
+            parsed_gr = self._run_inference(image, task, missing)
+            gr_dets = self._parse_detections(parsed_gr, task, [missing])
+            for d in gr_dets:
                 b = d["box"]
                 box_area = max(0, b[2] - b[0]) * max(0, b[3] - b[1])
                 if (box_area / img_area) < 0.90:
-                    valid_detections.append(d)
-            detections = valid_detections
+                    d["label"] = missing
+                    grounding_dets.append(d)
 
-        # If grounding returned nothing, fall back to <OD> (generic detection)
-        if not detections and task != "<OD>":
-            logger.info("Grounding returned 0 results, falling back to <OD>")
-            parsed_od = self._run_inference(image, "<OD>", None)
-            all_dets = self._parse_detections(parsed_od, "<OD>", requested_labels)
-            # Filter to only requested labels if any
-            if requested_labels:
-                detections = [
-                    d for d in all_dets
-                    if any(rl in d["label"] for rl in requested_labels)
-                ]
-            else:
-                detections = all_dets
+        final_dets = od_matched + grounding_dets
 
-        return detections
+        # 3. Fallback to individual phrase grounding if OD returned 0 matches
+        if not final_dets:
+            for req in requested_labels:
+                task = "<CAPTION_TO_PHRASE_GROUNDING>"
+                parsed_gr = self._run_inference(image, task, req)
+                gr_dets = self._parse_detections(parsed_gr, task, [req])
+                for d in gr_dets:
+                    b = d["box"]
+                    box_area = max(0, b[2] - b[0]) * max(0, b[3] - b[1])
+                    if (box_area / img_area) < 0.90:
+                        d["label"] = req
+                        final_dets.append(d)
+
+        return final_dets
 
     def ocr_buffer(self, image_bytes: bytes) -> List[Dict]:
         """
