@@ -1,33 +1,30 @@
-version: "3.8"
+version: '3.8'
 
 services:
-  locate-anything-api:
+  florence-vision-cluster:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: locate-anything:latest
-    container_name: locate-anything-service
+      dockerfile: Dockerfile.gpu
+    image: florence2-vision-service:latest
+    container_name: florence2-vision-studio
     restart: unless-stopped
     ports:
-      - "${LA_PORT:-8080}:8080"
-    volumes:
-      # Mount model from host machine to container (read-only)
-      - ./models:/app/models:ro
+      - "8080:8080"
+      - "8081:8081"
     environment:
-      - LA_MODEL_PATH=/app/models/locate-anything-q4_k.gguf
-      - LA_THREADS=8
-      - LA_MODE=fast
-      - LA_PORT=8080
+      - FLORENCE_MODEL_ID=microsoft/Florence-2-large
+      - AUTH_ENABLED=false
+      - VALID_API_KEYS=florence_demo_key_2026,admin_secret_key
+      - RATE_LIMIT_RPM=120
     deploy:
       resources:
-        limits:
-          cpus: "8.0"
-          memory: 8192M
         reservations:
-          memory: 5120M
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+
+volumes:
+  huggingface-cache:

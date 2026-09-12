@@ -114,6 +114,7 @@
           </div>
           <div class="preset-chips" id="presetChips">
             <button type="button" class="chip special-chip" data-mode="od" title="Detect all objects automatically without typing prompt">⚡ Detect All (&lt;OD&gt;)</button>
+            <button type="button" class="chip special-chip ocr-chip" data-mode="ocr" title="Extract and read all text/numbers on the image">📖 OCR Text</button>
             <button type="button" class="chip" data-tag="person">person</button>
             <button type="button" class="chip" data-tag="bus">bus</button>
             <button type="button" class="chip" data-tag="car">car</button>
@@ -142,6 +143,13 @@
               <span class="mode-card">
                 <span class="mode-name">Detect All (&lt;OD&gt;)</span>
                 <span class="mode-desc">Auto-discover all objects</span>
+              </span>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="decodeMode" value="ocr" id="modeOCR">
+              <span class="mode-card">
+                <span class="mode-name">OCR Text Read</span>
+                <span class="mode-desc">Extract text &amp; regions</span>
               </span>
             </label>
             <label class="mode-option">
@@ -298,6 +306,6 @@
     </footer>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2.2"></script>
 </body>
 </html>

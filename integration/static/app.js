@@ -116,17 +116,24 @@ function setupEventListeners() {
       return;
     }
 
+    if (chip.dataset.mode === 'ocr') {
+      const modeOCR = document.getElementById('modeOCR');
+      if (modeOCR) modeOCR.checked = true;
+      DOM.promptInput.value = '<OCR>';
+      return;
+    }
+
     const tag = chip.dataset.tag;
     if (!tag) return;
 
-    // If current mode is OD, switch back to grounding
+    // If current mode is OD or OCR, switch back to grounding
     const modeGrounding = document.getElementById('modeGrounding');
-    if (modeGrounding && document.getElementById('modeOD')?.checked) {
+    if (modeGrounding && (document.getElementById('modeOD')?.checked || document.getElementById('modeOCR')?.checked)) {
       modeGrounding.checked = true;
     }
 
     const current = DOM.promptInput.value.trim();
-    if (!current || current === '<OD>') {
+    if (!current || current === '<OD>' || current === '<OCR>') {
       DOM.promptInput.value = tag;
     } else if (!current.includes(tag)) {
       DOM.promptInput.value = `${current}</c>${tag}`;
@@ -136,9 +143,11 @@ function setupEventListeners() {
   // Task mode radio change listener
   document.querySelectorAll('input[name="decodeMode"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
-      if (e.target.value === 'od' && (!DOM.promptInput.value.trim() || DOM.promptInput.value.trim() === 'bus')) {
+      if (e.target.value === 'od') {
         DOM.promptInput.value = '<OD>';
-      } else if (e.target.value === 'grounding' && DOM.promptInput.value.trim() === '<OD>') {
+      } else if (e.target.value === 'ocr') {
+        DOM.promptInput.value = '<OCR>';
+      } else if (e.target.value === 'grounding' && (DOM.promptInput.value.trim() === '<OD>' || DOM.promptInput.value.trim() === '<OCR>')) {
         DOM.promptInput.value = 'bus';
       }
     });
@@ -300,9 +309,12 @@ async function runDetection() {
   }
   const selectedMode = document.querySelector('input[name="decodeMode"]:checked')?.value || 'grounding';
   let prompt = DOM.promptInput.value.trim();
-  if (!prompt && selectedMode === 'od') {
-    prompt = '<OD>';
+  if (selectedMode === 'ocr') {
+    if (!prompt) prompt = '<OCR>';
+  } else if (selectedMode === 'od') {
+    if (!prompt) prompt = '<OD>';
   }
+
   if (!prompt) {
     alert('Please enter at least one target description in the prompt.');
     DOM.promptInput.focus();
@@ -312,14 +324,18 @@ async function runDetection() {
   // Set loading state
   setBusy(true);
 
+  const isOCR = (selectedMode === 'ocr');
+  const endpoint = isOCR ? '/v1/ocr' : '/v1/locate';
   const formData = new FormData();
   formData.append('image', state.currentBlob);
-  formData.append('prompt', prompt);
-  formData.append('mode', selectedMode);
+  if (!isOCR) {
+    formData.append('prompt', prompt);
+    formData.append('mode', selectedMode);
+  }
 
   const t0 = performance.now();
   try {
-    const response = await fetch('/v1/locate', {
+    const response = await fetch(endpoint, {
       method: 'POST',
       body: formData,
     });
@@ -334,7 +350,14 @@ async function runDetection() {
     const servedBy = response.headers.get('X-Cluster-Served-By') || 'Cluster Worker';
 
     // Store state
-    state.detections = data.detections || [];
+    if (isOCR) {
+      state.detections = (data.regions || []).map(r => ({
+        label: r.text,
+        box: r.box
+      }));
+    } else {
+      state.detections = data.detections || [];
+    }
     state.servingNode = servedBy;
 
     // Update telemetry metrics

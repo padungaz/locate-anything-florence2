@@ -129,16 +129,8 @@ class FlorenceEngine:
     def _translate_prompt(prompt: str):
         """
         Convert LocateAnything-style prompt to Florence-2 task + text_input.
-
-        Input formats supported:
-          - "cat</c>remote"  -> CAPTION_TO_PHRASE_GROUNDING with generated caption
-          - "cat"            -> CAPTION_TO_PHRASE_GROUNDING
-          - "Locate all..."  -> strip prefix, extract labels
-          - "" or None       -> fall back to <OD> (detect everything)
-
-        Returns: (task_token, text_input_or_None)
         """
-        if not prompt or not prompt.strip():
+        if not prompt or not prompt.strip() or prompt.strip().upper() in ("<OD>", "OD"):
             return "<OD>", None
 
         p = prompt.strip()
@@ -149,15 +141,13 @@ class FlorenceEngine:
             p = p[len(prefix):].strip().rstrip(".")
 
         # Split on </c> separator (LocateAnything multi-label format)
-        labels = [lbl.strip() for lbl in p.split("</c>") if lbl.strip()]
+        labels = [lbl.strip() for lbl in p.split("</c>") if lbl.strip() and lbl.strip().upper() not in ("<OD>", "OD")]
 
         if not labels:
             return "<OD>", None
 
         # Build a natural-language caption for phrase grounding
         caption = " and ".join(labels)
-        # e.g. "cat and remote" -> Florence finds "cat" and "remote"
-
         return "<CAPTION_TO_PHRASE_GROUNDING>", caption
 
     # -----------------------------------------------------------------------
@@ -171,7 +161,7 @@ class FlorenceEngine:
         if not self._loaded:
             raise RuntimeError("Engine is closed. Cannot run inference.")
 
-        prompt = task if text_input is None else task + text_input
+        prompt = task if not text_input else task + text_input
 
         with self._lock:
             inputs = self._processor(
@@ -203,13 +193,6 @@ class FlorenceEngine:
                           requested_labels: List[str]) -> List[Dict]:
         """
         Convert Florence-2 parsed output to LocateAnything-compatible format.
-
-        Florence output:
-          {'<CAPTION_TO_PHRASE_GROUNDING>': {'bboxes': [[x1,y1,x2,y2], ...], 'labels': [...]}}
-          {'<OD>': {'bboxes': [[x1,y1,x2,y2], ...], 'labels': [...]}}
-
-        LocateAnything output:
-          [{"label": "cat", "box": [x1, y1, x2, y2]}, ...]
         """
         result_key = task
         data = parsed.get(result_key, {})
@@ -219,7 +202,6 @@ class FlorenceEngine:
 
         detections = []
         for i, (bbox, label) in enumerate(zip(bboxes, labels)):
-            # bbox from Florence is already [x1, y1, x2, y2] in pixel coords
             detections.append({
                 "label": label.strip().lower() if label else f"object_{i}",
                 "box": [round(c, 3) for c in bbox],
@@ -232,17 +214,6 @@ class FlorenceEngine:
     # -----------------------------------------------------------------------
     def detect(self, image_path: str, prompt: str,
                mode: Union[Mode, int, str] = Mode.GROUNDING) -> List[Dict]:
-        """
-        Detect objects in an image file.
-
-        Args:
-            image_path: Path to image file (PNG/JPG/WebP).
-            prompt:     Open-vocabulary query (supports </c> separator).
-            mode:       Ignored for compatibility; Florence auto-selects task.
-
-        Returns:
-            List of {"label": str, "box": [x1, y1, x2, y2]}
-        """
         if not self._loaded:
             raise RuntimeError("Engine is closed.")
 
@@ -254,17 +225,6 @@ class FlorenceEngine:
 
     def detect_buffer(self, image_bytes: bytes, prompt: str,
                       mode: Union[Mode, int, str] = Mode.GROUNDING) -> List[Dict]:
-        """
-        Detect objects from in-memory image bytes.
-
-        Args:
-            image_bytes: Raw image bytes (PNG/JPG/WebP).
-            prompt:      Open-vocabulary query (supports </c> separator).
-            mode:        Ignored for compatibility.
-
-        Returns:
-            List of {"label": str, "box": [x1, y1, x2, y2]}
-        """
         if not self._loaded:
             raise RuntimeError("Engine is closed.")
 
@@ -278,12 +238,14 @@ class FlorenceEngine:
         """Internal: run detection on a PIL Image."""
         task, text_input = self._translate_prompt(prompt)
 
-        # Extract requested labels for filtering
         p = prompt.strip()
-        prefix = "Locate all the instances that matches the following description:"
-        if p.lower().startswith(prefix.lower()):
-            p = p[len(prefix):].strip().rstrip(".")
-        requested_labels = [lbl.strip().lower() for lbl in p.split("</c>") if lbl.strip()]
+        if p.upper() in ("<OD>", "OD"):
+            requested_labels = []
+        else:
+            prefix = "Locate all the instances that matches the following description:"
+            if p.lower().startswith(prefix.lower()):
+                p = p[len(prefix):].strip().rstrip(".")
+            requested_labels = [lbl.strip().lower() for lbl in p.split("</c>") if lbl.strip() and lbl.strip().upper() not in ("<OD>", "OD")]
 
         parsed = self._run_inference(image, task, text_input)
         detections = self._parse_detections(parsed, task, requested_labels)
@@ -315,3 +277,75 @@ class FlorenceEngine:
                 detections = all_dets
 
         return detections
+
+    def ocr_buffer(self, image_bytes: bytes) -> List[Dict]:
+        """
+        Extract text and quad bounding boxes from an image (<OCR_WITH_REGION>).
+        Returns list of {"text": str, "quad_box": [x1, y1, x2, y2, x3, y3, x4, y4], "box": [x1, y1, x2, y2]}
+        """
+        if not self._loaded:
+            raise RuntimeError("Engine is closed.")
+        try:
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as e:
+            raise ValueError(f"Invalid or corrupted image: {e}")
+
+        task = "<OCR_WITH_REGION>"
+        parsed = self._run_inference(image, task, None)
+        data = parsed.get(task, {})
+        quad_boxes = data.get("quad_boxes", [])
+        labels = data.get("labels", [])
+
+        results = []
+        for qbox, text in zip(quad_boxes, labels):
+            xs = qbox[0::2]
+            ys = qbox[1::2]
+            bbox = [round(min(xs), 3), round(min(ys), 3), round(max(xs), 3), round(max(ys), 3)]
+            results.append({
+                "text": text.strip(),
+                "quad_box": [round(c, 3) for c in qbox],
+                "box": bbox,
+            })
+        return results
+
+    def ocr(self, image_path: str) -> List[Dict]:
+        with open(image_path, "rb") as f:
+            return self.ocr_buffer(f.read())
+
+    def segment_buffer(self, image_bytes: bytes, prompt: str) -> List[Dict]:
+        """
+        Segment objects matching prompt using <REFERRING_EXPRESSION_SEGMENTATION>.
+        Returns list of {"label": str, "polygons": [...], "box": [x1, y1, x2, y2]}
+        """
+        if not self._loaded:
+            raise RuntimeError("Engine is closed.")
+        try:
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as e:
+            raise ValueError(f"Invalid or corrupted image: {e}")
+
+        task = "<REFERRING_EXPRESSION_SEGMENTATION>"
+        clean_prompt = prompt.replace("</c>", " and ").strip()
+        parsed = self._run_inference(image, task, clean_prompt)
+        data = parsed.get(task, {})
+        polygons = data.get("polygons", [])
+        labels = data.get("labels", [])
+
+        results = []
+        for poly_list, label in zip(polygons, labels):
+            all_x = []
+            all_y = []
+            for poly in poly_list:
+                all_x.extend(poly[0::2])
+                all_y.extend(poly[1::2])
+            bbox = [round(min(all_x), 3), round(min(all_y), 3), round(max(all_x), 3), round(max(all_y), 3)] if all_x else [0, 0, 0, 0]
+            results.append({
+                "label": label.strip().lower(),
+                "polygons": poly_list,
+                "box": bbox,
+            })
+        return results
+
+    def segment(self, image_path: str, prompt: str) -> List[Dict]:
+        with open(image_path, "rb") as f:
+            return self.segment_buffer(f.read(), prompt)

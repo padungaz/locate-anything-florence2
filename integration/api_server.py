@@ -64,6 +64,7 @@ def _parse_mode(mode_str: str):
         "od": Mode.OD,
         "grounding": Mode.GROUNDING,
         "dense": Mode.DENSE_CAPTION,
+        "ocr": Mode.OD,
         # Legacy LocateAnything compatibility
         "fast": Mode.GROUNDING,
         "hybrid": Mode.GROUNDING,
@@ -211,7 +212,11 @@ async def locate(
     # Run inference
     t0 = time.monotonic()
     try:
-        detections = engine.detect_buffer(image_bytes, prompt, mode=decode_mode)
+        if mode.lower() == "ocr" or prompt.strip().upper() in ("<OCR>", "OCR"):
+            ocr_res = engine.ocr_buffer(image_bytes)
+            detections = [{"label": item["text"], "box": item["box"]} for item in ocr_res]
+        else:
+            detections = engine.detect_buffer(image_bytes, prompt, mode=decode_mode)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FlorenceError as e:
@@ -334,6 +339,105 @@ async def locate_annotated(
             "X-Detection-Count": str(len(detections)),
             "X-Latency-Ms": str(round(latency_ms, 1)),
         }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Extended Vision Tasks: OCR & Segmentation
+# ---------------------------------------------------------------------------
+class OCRItem(BaseModel):
+    text: str = Field(..., description="Recognized text string")
+    quad_box: list = Field(..., description="Quad polygon [x1,y1, x2,y2, x3,y3, x4,y4]")
+    box: list = Field(..., description="Bounding box [x1, y1, x2, y2]")
+
+
+class OCRResponse(BaseModel):
+    regions: list[OCRItem] = Field(..., description="List of recognized text regions")
+    count: int = Field(..., description="Number of text regions found")
+    full_text: str = Field(..., description="Concatenated extracted text")
+    latency_ms: float = Field(..., description="Inference time in milliseconds")
+
+
+class SegmentItem(BaseModel):
+    label: str = Field(..., description="Segmented object label")
+    polygons: list = Field(..., description="List of polygon contour coordinates")
+    box: list = Field(..., description="Outer bounding box [x1, y1, x2, y2]")
+
+
+class SegmentResponse(BaseModel):
+    segments: list[SegmentItem] = Field(..., description="List of segmented objects")
+    count: int = Field(..., description="Number of segments")
+    latency_ms: float = Field(..., description="Inference time in milliseconds")
+
+
+@app.post("/v1/ocr", response_model=OCRResponse, tags=["Extended Tasks"])
+async def ocr(
+    image: UploadFile = File(..., description="Input image (PNG/JPG)"),
+):
+    """
+    Extract text and detect word bounding boxes (<OCR_WITH_REGION>).
+    """
+    if not engine_ready or not engine:
+        raise HTTPException(status_code=503, detail="Engine not ready")
+
+    image_bytes = await image.read()
+    if len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    t0 = time.monotonic()
+    try:
+        results = engine.ocr_buffer(image_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("OCR inference error")
+        raise HTTPException(status_code=500, detail=f"OCR error: {e}")
+
+    latency_ms = (time.monotonic() - t0) * 1000
+    full_text = " ".join(item["text"] for item in results)
+
+    logger.info(f"POST /v1/ocr — regions={len(results)} latency={latency_ms:.0f}ms")
+
+    return OCRResponse(
+        regions=[OCRItem(**item) for item in results],
+        count=len(results),
+        full_text=full_text,
+        latency_ms=round(latency_ms, 1),
+    )
+
+
+@app.post("/v1/segment", response_model=SegmentResponse, tags=["Extended Tasks"])
+async def segment(
+    image: UploadFile = File(..., description="Input image (PNG/JPG)"),
+    prompt: str = Form(..., description="Object prompt to segment"),
+):
+    """
+    Segment objects into polygon contours (<REFERRING_EXPRESSION_SEGMENTATION>).
+    """
+    if not engine_ready or not engine:
+        raise HTTPException(status_code=503, detail="Engine not ready")
+
+    image_bytes = await image.read()
+    if len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    t0 = time.monotonic()
+    try:
+        results = engine.segment_buffer(image_bytes, prompt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Segmentation inference error")
+        raise HTTPException(status_code=500, detail=f"Segmentation error: {e}")
+
+    latency_ms = (time.monotonic() - t0) * 1000
+
+    logger.info(f"POST /v1/segment — prompt=\"{prompt}\" segments={len(results)} latency={latency_ms:.0f}ms")
+
+    return SegmentResponse(
+        segments=[SegmentItem(**item) for item in results],
+        count=len(results),
+        latency_ms=round(latency_ms, 1),
     )
 
 

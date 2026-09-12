@@ -50,12 +50,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# Security & Rate Limiting Configuration
+# ---------------------------------------------------------------------------
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "false").lower() in ("true", "1", "yes")
+VALID_API_KEYS = set(k.strip() for k in os.environ.get("VALID_API_KEYS", "florence_demo_key_2026,admin_secret_key").split(",") if k.strip())
+RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "120"))  # Max req/min per IP
+
+client_request_history: Dict[str, List[float]] = {}
+
+@app.middleware("http")
+async def security_and_rate_limit_middleware(request: Request, call_next):
+    # Protect /v1/ inference endpoints
+    if request.url.path.startswith("/v1/"):
+        # 1. API Key Auth
+        if AUTH_ENABLED:
+            api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+            if not api_key:
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    api_key = auth_header[7:].strip()
+
+            if not api_key or api_key not in VALID_API_KEYS:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized: Invalid or missing API key. Provide header 'X-API-Key' or 'Authorization: Bearer <key>'"}
+                )
+
+        # 2. Rate Limiter (sliding 60s window per client IP)
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        timestamps = client_request_history.setdefault(client_ip, [])
+        client_request_history[client_ip] = [t for t in timestamps if now - t < 60.0]
+        if len(client_request_history[client_ip]) >= RATE_LIMIT_RPM:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Rate limit exceeded ({RATE_LIMIT_RPM} req/min). Please slow down."}
+            )
+        client_request_history[client_ip].append(now)
+
+    return await call_next(request)
+
 # Parse worker configuration from environment
 # Format: "name:url:type,name:url:type"
 # e.g.: "GPU-Worker:http://127.0.0.1:8081:gpu,CPU-Worker:http://127.0.0.1:8082:cpu"
 DEFAULT_WORKERS_CONF = (
-    "GPU-Worker-1:http://127.0.0.1:8081:gpu,"
-    "CPU-Worker-1:http://127.0.0.1:8082:cpu"
+    "Florence2-GPU:http://127.0.0.1:8081:gpu"
 )
 WORKERS_CONF = os.environ.get("CLUSTER_WORKERS", DEFAULT_WORKERS_CONF)
 
@@ -262,6 +302,22 @@ async def locate_annotated_proxy(request: Request):
         raise HTTPException(status_code=503, detail="No active backend workers available.")
     logger.info(f"Dispatching POST /v1/locate/annotated -> {worker.name} (type: {worker.type}, in_flight: {worker.in_flight})")
     return await forward_request(worker, "/v1/locate/annotated", request)
+
+@app.post("/v1/ocr")
+async def ocr_proxy(request: Request):
+    worker = select_best_worker()
+    if not worker:
+        raise HTTPException(status_code=503, detail="No active backend workers available.")
+    logger.info(f"Dispatching POST /v1/ocr -> {worker.name} (in_flight: {worker.in_flight})")
+    return await forward_request(worker, "/v1/ocr", request)
+
+@app.post("/v1/segment")
+async def segment_proxy(request: Request):
+    worker = select_best_worker()
+    if not worker:
+        raise HTTPException(status_code=503, detail="No active backend workers available.")
+    logger.info(f"Dispatching POST /v1/segment -> {worker.name} (in_flight: {worker.in_flight})")
+    return await forward_request(worker, "/v1/segment", request)
 
 # ---------------------------------------------------------------------------
 # Static Web Dashboard & Sample Assets
