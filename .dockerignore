@@ -1,0 +1,26 @@
+# Keep the Docker build context small and reproducible
+.git/
+**/.git/
+build/
+**/build/
+build_shared/
+**/build_shared/
+*.tar.gz
+*.gguf
+models/
+node_modules/
+.claude/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+benchmarks/media/
+benchmarks/plots/
+benchmarks/demo/
+*.png
+*.jpg
+*.jpeg
+*.json
+!integration/*.py

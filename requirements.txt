@@ -1,0 +1,8 @@
+torch>=2.0
+transformers>=4.40
+Pillow>=10.0
+fastapi>=0.100
+uvicorn>=0.20
+requests
+einops
+timm

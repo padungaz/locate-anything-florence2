@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Florence-2 Vision Studio — Commercial Open-Vocabulary Visual Grounding & Object Detection Platform powered by Microsoft Florence-2">
+  <title>Florence-2 Vision Studio — Commercial Platform</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- TOP NAVBAR -->
+    <header class="navbar" id="topNavbar">
+      <div class="nav-brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1 class="brand-title">Florence-2<span class="brand-ext"> Studio</span></h1>
+          <span class="brand-subtitle">Commercial Vision Foundation Model • MIT License</span>
+        </div>
+      </div>
+
+      <div class="nav-metrics">
+        <div class="license-badge" title="Fully cleared for commercial products, APIs, and enterprise deployments">
+          <span class="pulse-dot emerald"></span>
+          <span class="badge-text">100% Commercial MIT</span>
+        </div>
+        <div class="cluster-badge" id="clusterStatusBadge">
+          <span class="pulse-dot" id="clusterPulseDot"></span>
+          <span class="badge-text" id="clusterStatusText">Connecting to Cluster...</span>
+        </div>
+        <a href="/docs" target="_blank" class="nav-btn" id="swaggerDocsBtn" title="Open Swagger OpenAPI Documentation">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span>Swagger API</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- MAIN STUDIO LAYOUT -->
+    <main class="studio-grid" id="studioGrid">
+      
+      <!-- LEFT CONTROL PANEL -->
+      <aside class="panel control-panel" id="controlPanel">
+        <div class="panel-header">
+          <h2>Input & Parameters</h2>
+          <span class="panel-tag">Florence-2</span>
+        </div>
+
+        <!-- Preset Sample Gallery -->
+        <div class="control-section">
+          <label class="section-label">Quick Samples</label>
+          <div class="sample-cards" id="sampleCardsContainer">
+            <button type="button" class="sample-btn active" id="sampleBusBtn" data-img="/samples/bus_in.png" data-prompt="bus">
+              <span class="sample-icon">🚌</span>
+              <div class="sample-meta">
+                <strong>City Bus</strong>
+                <small>bus</small>
+              </div>
+            </button>
+            <button type="button" class="sample-btn" id="sampleKitchenBtn" data-img="/samples/coco_kitchen_in.png" data-prompt="cup</c>bottle</c>oven</c>microwave">
+              <span class="sample-icon">🍳</span>
+              <div class="sample-meta">
+                <strong>Kitchen</strong>
+                <small>cup, bottle, oven</small>
+              </div>
+            </button>
+            <button type="button" class="sample-btn" id="sampleSkaterBtn" data-img="/samples/coco_skater_in.png" data-prompt="person</c>skateboard">
+              <span class="sample-icon">🛹</span>
+              <div class="sample-meta">
+                <strong>Skater</strong>
+                <small>person, skateboard</small>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Image Upload Dropzone -->
+        <div class="control-section">
+          <label class="section-label">Or Upload Image</label>
+          <div class="dropzone" id="imageDropzone">
+            <input type="file" id="fileInput" accept="image/png, image/jpeg, image/webp" class="file-input">
+            <div class="dropzone-content" id="dropzoneContent">
+              <div class="upload-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              </div>
+              <p class="dropzone-title">Drag & drop or <span class="highlight">browse</span></p>
+              <p class="dropzone-sub">PNG, JPEG, WebP (up to 16MB)</p>
+            </div>
+            <div class="dropzone-preview hidden" id="dropzonePreview">
+              <img id="previewThumbnail" alt="Preview Thumbnail" class="thumbnail-img">
+              <button type="button" class="clear-btn" id="clearImageBtn" title="Clear image">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Prompt Input -->
+        <div class="control-section">
+          <div class="section-header-flex">
+            <label class="section-label" for="promptInput">Prompt Query</label>
+            <span class="label-help" title="Separate targets with </c> or enter natural language description">Multi-label: target1&lt;/c&gt;target2</span>
+          </div>
+          <div class="prompt-input-wrapper">
+            <input type="text" id="promptInput" class="text-input" placeholder="e.g. bus or person</c>car" value="bus">
+          </div>
+          <div class="preset-chips" id="presetChips">
+            <button type="button" class="chip special-chip" data-mode="od" title="Detect all objects automatically without typing prompt">⚡ Detect All (&lt;OD&gt;)</button>
+            <button type="button" class="chip" data-tag="person">person</button>
+            <button type="button" class="chip" data-tag="bus">bus</button>
+            <button type="button" class="chip" data-tag="car">car</button>
+            <button type="button" class="chip" data-tag="license plate">license plate</button>
+            <button type="button" class="chip" data-tag="dog">dog</button>
+            <button type="button" class="chip" data-tag="laptop">laptop</button>
+            <button type="button" class="chip" data-tag="cup">cup</button>
+            <button type="button" class="chip" data-tag="bottle">bottle</button>
+            <button type="button" class="chip" data-tag="remote">remote</button>
+          </div>
+        </div>
+
+        <!-- Florence-2 Task Mode Selection -->
+        <div class="control-section">
+          <label class="section-label">Florence-2 Vision Task</label>
+          <div class="mode-selector" id="modeSelector">
+            <label class="mode-option">
+              <input type="radio" name="decodeMode" value="grounding" checked id="modeGrounding">
+              <span class="mode-card">
+                <span class="mode-name">Phrase Grounding</span>
+                <span class="mode-desc">Find specific targets in text</span>
+              </span>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="decodeMode" value="od" id="modeOD">
+              <span class="mode-card">
+                <span class="mode-name">Detect All (&lt;OD&gt;)</span>
+                <span class="mode-desc">Auto-discover all objects</span>
+              </span>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="decodeMode" value="dense" id="modeDense">
+              <span class="mode-card">
+                <span class="mode-name">Dense Region</span>
+                <span class="mode-desc">Detailed region descriptions</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="button" class="primary-btn" id="runDetectBtn">
+          <span class="btn-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </span>
+          <span class="btn-text">Locate Objects</span>
+          <span class="btn-spinner hidden" id="btnSpinner"></span>
+        </button>
+
+      </aside>
+
+      <!-- CENTER WORKSPACE / CANVAS -->
+      <section class="panel workspace-panel" id="workspacePanel">
+        <div class="workspace-header">
+          <div class="workspace-title-group">
+            <h2>Detection Canvas</h2>
+            <span class="image-dim-badge" id="imageDimBadge">812 × 1092 px</span>
+          </div>
+          <div class="canvas-actions">
+            <button type="button" class="icon-btn" id="resetZoomBtn" title="Reset View">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+            </button>
+            <button type="button" class="action-outline-btn" id="downloadAnnotatedBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download Annotated</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="canvas-viewport" id="canvasViewport">
+          <!-- Canvas Overlay Stack -->
+          <div class="canvas-wrapper" id="canvasWrapper">
+            <img id="sourceImage" alt="Grounding Target" class="source-img" crossorigin="anonymous">
+            <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+            <div id="canvasTooltip" class="canvas-tooltip hidden"></div>
+          </div>
+
+          <!-- Empty State Placeholder -->
+          <div class="empty-state hidden" id="emptyState">
+            <div class="empty-icon">🖼️</div>
+            <h3>No image selected</h3>
+            <p>Upload a picture or click one of the quick samples on the left.</p>
+          </div>
+
+          <!-- Loading Overlay -->
+          <div class="loading-overlay hidden" id="loadingOverlay">
+            <div class="radar-scan"></div>
+            <div class="loading-label">Locating objects with Florence-2 vision grounding...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT TELEMETRY & RESULTS PANEL -->
+      <aside class="panel results-panel" id="resultsPanel">
+        <div class="panel-header">
+          <h2>Inference Telemetry</h2>
+          <span class="panel-tag live">Real-time</span>
+        </div>
+
+        <!-- Telemetry Metric Cards -->
+        <div class="metric-cards">
+          <div class="metric-card">
+            <div class="metric-icon cyan">⚡</div>
+            <div class="metric-data">
+              <span class="metric-label">Inference Time</span>
+              <span class="metric-val" id="metricLatency">-- ms</span>
+            </div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon emerald">🎯</div>
+            <div class="metric-data">
+              <span class="metric-label">Detections</span>
+              <span class="metric-val" id="metricCount">0</span>
+            </div>
+          </div>
+          <div class="metric-card full-width">
+            <div class="metric-icon purple">🖥️</div>
+            <div class="metric-data">
+              <span class="metric-label">Served By Node</span>
+              <span class="metric-val sm" id="metricNode">Waiting...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results Tab Navigation -->
+        <div class="tab-nav">
+          <button type="button" class="tab-btn active" id="tabDetectionsBtn">Detections (<span id="detTabCount">0</span>)</button>
+          <button type="button" class="tab-btn" id="tabJsonBtn">Raw JSON</button>
+        </div>
+
+        <!-- Detections List View -->
+        <div class="tab-content" id="tabDetections">
+          <div class="detections-list" id="detectionsList">
+            <div class="empty-results-msg" id="emptyResultsMsg">
+              <span>Run detection to view bounding boxes and labels.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Inspector View -->
+        <div class="tab-content hidden" id="tabJson">
+          <div class="json-actions">
+            <button type="button" class="copy-btn" id="copyJsonBtn">Copy JSON</button>
+          </div>
+          <pre class="json-viewer" id="jsonViewer"><code>{}</code></pre>
+        </div>
+
+        <!-- Cluster Health Card -->
+        <div class="cluster-summary-card" id="clusterSummaryCard">
+          <div class="cluster-card-header">
+            <h3>Active Cluster Nodes</h3>
+            <span class="node-count-badge" id="clusterNodeCountBadge">1 Node</span>
+          </div>
+          <div class="cluster-nodes-list" id="clusterNodesList">
+            <div class="node-item">
+              <div class="node-item-header">
+                <span class="node-indicator online"></span>
+                <strong>Florence2-GPU</strong>
+                <span class="node-type-badge gpu">PyTorch CUDA</span>
+              </div>
+              <div class="node-item-stats">
+                <span>Port: 8081</span>
+                <span>Model: Florence-2-large</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </aside>
+
+    </main>
+
+    <!-- FOOTER STATUS BAR -->
+    <footer class="status-bar" id="statusBar">
+      <div class="status-left">
+        <span class="status-label">Model Engine:</span>
+        <span class="status-value highlight" id="statusBackendText">Microsoft Florence-2-large (MIT License • PyTorch / CUDA)</span>
+      </div>
+      <div class="status-right">
+        <span id="footerTelemetry">Cluster: 1 online worker | Commercial Ready</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
